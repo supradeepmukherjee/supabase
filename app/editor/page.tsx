@@ -19,7 +19,7 @@ import Code from "@editorjs/code";
 import Image from "@editorjs/image";
 
 const Editor = () => {
-    const [editor, setEditor] = useState(null)
+    const [editor, setEditor] = useState<null | EditorJS>(null)
     const [title, setTitle] = useState('')
     const [excerpt, setExcerpt] = useState('')
     const [saving, setSaving] = useState(false)
@@ -34,7 +34,7 @@ const Editor = () => {
         setMounted(true)
     }, [])
     useEffect(() => {
-        const initEditor = () => {
+        (async () => {
             const editor = new EditorJS({
                 holder: 'editorjs',
                 tools: {
@@ -42,11 +42,45 @@ const Editor = () => {
                     paragraph: Paragraph,
                     list: List,
                     quote: Quote,
-                    code: Code
-                }
+                    code: Code,
+                    image: {
+                        class: Image,
+                        config: {
+                            uploader: {
+                                uploadByFile: async (file: File) => {
+                                    const { data: { user } } = await supabase.auth.getUser()
+                                    if (!user) throw new Error('Unauthenticated')
+                                    const fileName = `${Date.now()}-${file.name}`
+                                    const { error } = await supabase.storage.from('blog-images').upload(`${user.id}/${fileName}`, file)
+                                    if (error) throw error
+                                    const { data: { publicUrl } } = supabase.storage.from('blog-images').getPublicUrl(`${user.id}/${fileName}`)
+                                    return {
+                                        success: 1,
+                                        file: { url: publicUrl }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                onReady() {
+                    console.log('Editor Ready')
+                },
             })
+            if (id) {
+                const { data } = await supabase.from('posts').select('*').eq('id', id).single()
+                if (data) {
+                    setTitle(data.title)
+                    setExcerpt(data.excerpt || '')
+                    await editor.render(data.content)
+                }
+            }
+            setEditor(editor)
+        })()
+        return () => {
+            if (editor?.destroy) editor.destroy()
         }
-    }, [])
+    }, [editor, id, supabase])
     return (
         <main className="min-h-screen bg-white dark:bg-zinc-950 transition-colors">
             <div className="max-w-4xl mx-auto px-4 py-8">
